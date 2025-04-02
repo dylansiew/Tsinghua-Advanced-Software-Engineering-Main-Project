@@ -5,7 +5,6 @@ from pydantic import BaseModel
 
 class Base_LLM_Agent:
     def __init__(self, agent_name: str, agent_prefix: str, user_prefix: str):
-        self.llm_agent = None
         self.agent_name = agent_name
         self.agent_prefix = agent_prefix
         self.user_prefix = user_prefix
@@ -51,9 +50,6 @@ class Base_LLM_Agent:
         response_model=str,
         system_prompt: str = "",
     ) -> str:
-        if self.llm_agent is None:
-            raise ValueError("LLM agent not initialized")
-
         if not self.__validate_message_history(message_history):
             raise ValueError("Invalid message history")
 
@@ -72,7 +68,6 @@ class Base_LLM_Agent:
             response = self._generate_structured_response(
                 message_history, response_model
             )
-
         llm_end_time = time.time()
         llm_duration = llm_end_time - llm_start_time
         print(f"LLM generated response in {llm_duration} seconds")

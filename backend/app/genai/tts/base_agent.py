@@ -19,7 +19,7 @@ class Base_TTS_Agent:
             print(f"Directory {directory} does not exist, creating it")
         os.makedirs(directory, exist_ok=True)
     
-    def convert_text_to_speech(self, text: str, output_file: str, voice: str = None) -> str:
+    def convert_text_to_speech(self, text: str, output_file: str, voice: str = None) -> bool:
         if voice is None:
             voice = self.default_voice
             
