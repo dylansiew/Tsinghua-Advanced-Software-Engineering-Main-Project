@@ -20,9 +20,6 @@ class Base_TTS_Agent:
         os.makedirs(directory, exist_ok=True)
     
     def convert_text_to_speech(self, text: str, output_file: str, voice: str = None) -> bool:
-        if voice is None:
-            voice = self.default_voice
-            
         if self.client is None:
             raise ValueError("Client not initialized")
         

@@ -1,21 +1,23 @@
 import base64
+import json
 import os
-import time
+import queue
+import threading
 from datetime import datetime, timedelta
 from typing import Optional
 
 from app.genai.tts.base_agent import Base_TTS_Agent
-from azure.cognitiveservices.speech import (
-    PronunciationAssessmentConfig, PronunciationAssessmentGradingSystem,
-    PronunciationAssessmentGranularity, PronunciationAssessmentResult,
-    SessionEventArgs, SpeechConfig, SpeechRecognitionEventArgs,
-    SpeechRecognizer, SpeechSynthesizer)
-from azure.cognitiveservices.speech.audio import AudioConfig, AudioOutputConfig
+from azure.cognitiveservices.speech import (ResultReason, SpeechConfig,
+                                            SpeechSynthesizer)
+from azure.cognitiveservices.speech.audio import (
+    AudioOutputConfig, AudioOutputStream, PullAudioOutputStream,
+    PushAudioOutputStreamCallback)
 from dotenv import load_dotenv
+from fastapi.responses import StreamingResponse
+from models.tts.viseme import AudioResponse, Viseme, WordOffset
 
 load_dotenv()
 
-min = 0
 
 visemeMapping = {
     0: "viseme_sil",
@@ -50,61 +52,111 @@ def getAvatarViseme(id: int):
         return "viseme_sil"
 
 
-class Azure_TTS_Agent(Base_TTS_Agent):
+class Azure_Agent(Base_TTS_Agent):
 
     def __init__(self):
         super().__init__("Azure")
         self.default_voice = "zh-CN-YunyiMultilingualNeural"
-        self.client = SpeechConfig(subscription=os.getenv("AZURE_SPEECH_KEY"), region=os.getenv("AZURE_SPEECH_REGION"))
+        self.client = SpeechConfig(
+            subscription=os.getenv("AZURE_SPEECH_KEY"),
+            region=os.getenv("AZURE_SPEECH_REGION"),
+        )
         self.client.speech_synthesis_language = "zh-CN"
         self.client.speech_recognition_language = "zh-CN"
         self.client.request_word_level_timestamps()
         self.client.speech_synthesis_voice_name = self.default_voice
-    
-    
-    def tts(self, file_path, toSpeak, voice_id: Optional[str] = None):
-        config = self.__init_speech_config(voice_id)
-        audioOutputConfig = AudioOutputConfig(filename=file_path)
-        synthesizer = SpeechSynthesizer(
-            speech_config=config, audio_config=audioOutputConfig
-        )
-        sorted_array = []
-        word_boundary = []
-        start_time = datetime.now()
-        offsetArr = []
+   
+    def tts_with_viseme_stream(self, toSpeak, voice_id: Optional[str] = None):
+        class StreamCallback(PushAudioOutputStreamCallback):
+            def __init__(self, audio_queue):
+                super().__init__()
+                self.audio_queue = audio_queue
 
-        def addViseme(e):
-            nonlocal offsetArr
-            offsetArr.append([e.audio_offset / 10000, e.viseme_id])
+            def write(self, data):
+                if data:
+                    self.audio_queue.put(data)
+                    return len(data)
+                return 0
 
-        def endViseme(e):
-            nonlocal sorted_array, offsetArr
-            sorted_array = sorted(offsetArr, key=lambda x: x[0])
+            def close(self):
+                self.audio_queue.put(None)
+                return super().close()
 
-        def addBoundary(e):
-            nonlocal word_boundary
-            offset = WordOffset(
-                offset_duration=e.audio_offset,
-                word_length=e.word_length,
-                text_offset=e.text_offset,
-            )
-            word_boundary.append(offset)
+        audio_queue = queue.Queue()
+        stream = PullAudioOutputStream(StreamCallback(audio_queue))
+        audioOutputConfig = AudioOutputConfig(stream=stream)
+        synthesizer = SpeechSynthesizer(speech_config=self.client, audio_config=audioOutputConfig)
 
-        synthesizer.viseme_received.connect(addViseme)
-        synthesizer.synthesis_completed.connect(endViseme)
-        synthesizer.synthesis_word_boundary.connect(addBoundary)
-        synthesizer.speak_text(toSpeak)
-        while len(sorted_array) == 0 and (datetime.now() - start_time) < timedelta(
-            seconds=10
-        ):
-            pass
-        return sorted_array, word_boundary
+        viseme_events = queue.Queue()
+        word_events = queue.Queue()
 
-    def tts_with_viseme(self, file_path, toSpeak, voice_id: Optional[str] = None):
-        viseme, word_boundary = self.tts(file_path=file_path, toSpeak=toSpeak, voice_id=voice_id)
-        return [
-            Viseme(stopTime=item[0], readyPlayerMeViseme=getAvatarViseme(item[1]))
-            for item in viseme
-        ], word_boundary
+        def add_viseme(e):
+            viseme_events.put({
+                "type": "viseme",
+                "timestamp": e.audio_offset / 10000,
+                "viseme_id": getAvatarViseme(e.viseme_id)
+            })
 
-    
+        def add_boundary(e):
+            word_events.put({
+                "type": "word",
+                "timestamp": e.audio_offset / 10000,
+                "word_length": e.word_length,
+                "text_offset": e.text_offset,
+                "text": e.text
+            })
+
+        synthesizer.viseme_received.connect(add_viseme)
+        synthesizer.synthesis_word_boundary.connect(add_boundary)
+
+        synthesis_done = threading.Event()
+
+        def on_synthesis_completed(e):
+            synthesis_done.set()
+            audio_queue.put(None)
+
+        synthesizer.synthesis_completed.connect(on_synthesis_completed)
+
+        synthesis_thread = threading.Thread(target=synthesizer.speak_text, args=(toSpeak,))
+        synthesis_thread.start()
+
+        while not synthesis_done.is_set() or not audio_queue.empty():
+            # Yield all visemes in the queue
+            while not viseme_events.empty():
+                yield viseme_events.get()
+
+            # Yield all word boundaries
+            while not word_events.empty():
+                yield word_events.get()
+
+            # Yield audio bytes
+            try:
+                audio_chunk = audio_queue.get(timeout=0.1)
+                if audio_chunk is None:
+                    break
+                yield {
+                    "type": "audio",
+                    "data": audio_chunk
+                }
+            except queue.Empty:
+                continue
+        
+    # def _tts(self, text: str, output_file: str, voice: str) -> bool:
+    #     viseme, word_boundary = self.tts_with_viseme(
+    #         file_path=output_file, toSpeak=text, voice_id=voice
+    #     )
+    #     return AudioResponse(
+    #         viseme=[
+    #             Viseme(stopTime=item[0], readyPlayerMeViseme=getAvatarViseme(item[1]))
+    #             for item in viseme
+    #         ],
+    #         word_boundary=word_boundary,
+    #     )
+
+    def _tts(self, text: str, output_file: str, voice: str) -> StreamingResponse:
+        def audio_stream():
+            for event in self.tts_with_viseme_stream(toSpeak=text, voice_id=voice):
+                if event["type"] == "audio":
+                    yield event["data"]
+
+        return StreamingResponse(audio_stream(), media_type="audio/wav")

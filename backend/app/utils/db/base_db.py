@@ -22,7 +22,7 @@ class BaseDB:
         
         self.table_names = table_names
         # self._run_connection_test()
-        self.create_tables()
+        # self.create_tables()
 
     def _format_query_path(self, query_name: str):
         file_path = os.path.join(self.query_dir, f"{query_name}.sql")
