@@ -2,6 +2,7 @@ import os
 import time
 
 from app.genai.llm.base_agent import Base_LLM_Agent
+from pydantic import BaseModel
 
 
 class Base_TTS_Agent:
@@ -19,7 +20,7 @@ class Base_TTS_Agent:
             print(f"Directory {directory} does not exist, creating it")
         os.makedirs(directory, exist_ok=True)
     
-    def convert_text_to_speech(self, text: str, output_file: str, voice: str = None) -> bool:
+    def convert_text_to_speech(self, text: str, output_file: str, voice: str = None) -> BaseModel:
         if self.client is None:
             raise ValueError("Client not initialized")
         

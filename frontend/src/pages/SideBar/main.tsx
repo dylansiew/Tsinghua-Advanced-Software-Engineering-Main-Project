@@ -1,16 +1,16 @@
 import {
-    Sidebar,
-    SidebarContent,
-    SidebarFooter,
-    SidebarGroup,
-    SidebarGroupContent,
-    SidebarGroupLabel,
-    SidebarHeader,
-    SidebarMenu,
-    SidebarMenuButton,
-    SidebarMenuItem,
-    SidebarProvider,
-    SidebarTrigger,
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+  SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { SidebarActions } from "./actions";
 
@@ -21,7 +21,7 @@ export const AppSideBarProvider: React.FC<AppSideBarProviderProps> = ({
   children,
 }) => {
   return (
-    <div className="p-1 w-[100vw]">
+    <div className="p-1 w-100%">
       <SidebarProvider>
         <AppSideBar />
         <main className="w-full">

@@ -12,6 +12,6 @@ class WordOffset(BaseModel):
     text_offset: int
     word_length: int
     
-class AudioResponse(BaseModel):
+class AudioData(BaseModel):
     viseme: List[Viseme]
     word_boundary: List[WordOffset]

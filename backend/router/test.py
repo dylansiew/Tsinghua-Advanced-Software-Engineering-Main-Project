@@ -51,3 +51,8 @@ def stream_test_audio():
         return {"error": "Test audio file not found."}
 
     return StreamingResponse(file_iterator(test_mp3_path), media_type="audio/mpeg")
+
+@test_router.get("/speak")
+async def test_speak(text: str):
+    print(text)
+    return tts_agent._tts(text, "data/tts/output/test.mp3", "voice1")
