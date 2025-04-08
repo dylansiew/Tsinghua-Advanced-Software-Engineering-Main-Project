@@ -1,4 +1,4 @@
-import { AudioResponse, ConversationMessage, ConversationMessageType } from "@/types/avatar/conversation";
+import { AudioMessage, ConversationMessage, ConversationMessageType } from "@/types/avatar/conversation";
 import WebsocketManager from "@/utils/websocket";
 import { useAvatarSpeak } from "@/zustand/Avatar/Speak";
 import useWebsocket from "@/zustand/Avatar/Websocket";
@@ -8,6 +8,7 @@ import { useRef } from "react";
 import { Group } from "three";
 import { Status } from "./status";
 import TranscriptionManager from "./transcription";
+import { TalkingAvatar } from "./avatar";
 
 const USER_ID = import.meta.env.VITE_USER_ID;
 const TIMEOUT_SECONDS = 2;
@@ -23,11 +24,11 @@ export const AvatarOverlay = () => {
       case ConversationMessageType.AUDIO_RESPONSE:
         try {
           console.log(data);
-          const audioResponse: AudioResponse = data.data;
-          console.log(audioResponse);
-          // setAudio(audioResponse.audio);
-          // setViseme(audioResponse.visemes);
-          // setWordOffset(audioResponse.word_offsets);
+          const AudioMessage: AudioMessage = data.data;
+          console.log(AudioMessage);
+          setAudio(AudioMessage.base64_audio);
+          setViseme(AudioMessage.viseme);
+          setWordOffset(AudioMessage.word_boundary);
         } catch (error) {
           console.error("Error parsing audio response:", error);
         }
@@ -39,7 +40,7 @@ export const AvatarOverlay = () => {
     if (message.length == 0 || !websocket) return;
     const data: ConversationMessage = {
       type: ConversationMessageType.QUERY,
-      data: message,
+      data: { query: message },
     };
     websocket.send(JSON.stringify(data));
   }
@@ -49,7 +50,7 @@ export const AvatarOverlay = () => {
         <ambientLight intensity={2} />
         <pointLight position={[10, 10, 10]} />
         {/* <OrbitControls /> */}
-        <Avatar />
+        <TalkingAvatar />
       </Canvas>
       <WebsocketManager
         url={`conversation/ws?user_id=${USER_ID}`}

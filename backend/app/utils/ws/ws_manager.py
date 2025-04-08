@@ -1,8 +1,7 @@
 from typing import Dict
 
 from fastapi import WebSocket
-from models.conversation.conversation import (ConversationMessage,
-                                              ConversationMessageType)
+from models.conversation.conversation import ConversationMessage
 
 
 class ConnectionManager:
@@ -18,7 +17,11 @@ class ConnectionManager:
             del self.active_connections[user_id]
 
     async def send_personal_message(self, message: ConversationMessage, user_id: str):
-        await self.active_connections[user_id].send_json(message.model_dump())
+        json_data = {
+            "type": message.type.value,
+            "data": message.data.model_dump(),
+        }
+        await self.active_connections[user_id].send_json(json_data)
 
     async def broadcast(self, message: str):
         for connection in self.active_connections.values():

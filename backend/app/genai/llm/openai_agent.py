@@ -23,6 +23,6 @@ class OpenAIAgent(Base_LLM_Agent):
         response = self.instrcutor_client.chat.completions.create(model=self.model, messages=message_history, response_model=response_model)
         return response
     
-    def generate_response(self, query: str, message_history: list[dict] = [], response_model = str, system_prompt: str = "") -> str:
-        return super().generate_response(query, message_history, response_model, system_prompt)
+    # def generate_response(self, query: str, message_history: list[dict] = [], response_model = str, system_prompt: str = "") -> str:
+    #     return super().generate_response(query, message_history, response_model, system_prompt)
     

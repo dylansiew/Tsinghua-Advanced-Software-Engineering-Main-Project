@@ -57,7 +57,7 @@ export const useAvatarSpeak = create<AvatarSpeakState>((set, get) => ({
   setAudio: (
     audioString,
     onAudioComplete,
-    speed = 0.75,
+    speed = 1,
     stopAutoPlay = false
   ) => {
     const currentAudio = get().audio;

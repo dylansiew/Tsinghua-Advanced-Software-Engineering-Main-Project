@@ -1,19 +1,14 @@
-import { useAnimations, useFBX, useGLTF } from "@react-three/drei";
+import { useAvatarSpeak, visemeMap } from "@/zustand/Avatar/Speak";
+import { useGLTF } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
-import { useEffect, useRef } from "react";
-import {
-  useAvatarSpeak,
-  visemeMap,
-} from "src/store/student/experience/avatarSpeak";
-import { degToRad } from "three/src/math/MathUtils";
+import { useRef } from "react";
 
-export const teachers = ["mainboy"];
 
-export const Teacher = ({  ...props }) => {
-  const group = useRef();
+export const TalkingAvatar = () => {
+  const group = useRef(null);
 
   const { viseme, getPlaying, audio } = useAvatarSpeak();
-  const { nodes, materials, scene } = useGLTF("/Tests/avatar.glb");
+  const { nodes, scene } = useGLTF("/Tests/avatar.glb");
   // const { animations: talkingAnimation } = useFBX(
   //   `/animations/${animation}.fbx`
   // );
@@ -26,32 +21,32 @@ export const Teacher = ({  ...props }) => {
   //   actions[animation].reset().play();
   // }, [actions, animation]);
 
-  const lerpTarget = (target, value, speed = 0.1) => {
-    if (nodes.Wolf3D_Head.morphTargetDictionary[target] !== undefined) {
-      nodes.Wolf3D_Head.morphTargetInfluences[
-        nodes.Wolf3D_Head.morphTargetDictionary[target]
-      ] = MathUtils.lerp(
-        nodes.Wolf3D_Head.morphTargetInfluences[
-          nodes.Wolf3D_Head.morphTargetDictionary[target]
-        ],
-        value,
-        speed
-      );
-    }
-    if (nodes.Wolf3D_Teeth.morphTargetDictionary[target] !== undefined) {
-      nodes.Wolf3D_Teeth.morphTargetInfluences[
-        nodes.Wolf3D_Teeth.morphTargetDictionary[target]
-      ] = MathUtils.lerp(
-        nodes.Wolf3D_Teeth.morphTargetInfluences[
-          nodes.Wolf3D_Teeth.morphTargetDictionary[target]
-        ],
-        value,
-        speed
-      );
-    }
-  };
+  // const lerpTarget = (target, value, speed = 0.1) => {
+  //   if (nodes.Wolf3D_Head.morphTargetDictionary[target] !== undefined) {
+  //     nodes.Wolf3D_Head.morphTargetInfluences[
+  //       nodes.Wolf3D_Head.morphTargetDictionary[target]
+  //     ] = MathUtils.lerp(
+  //       nodes.Wolf3D_Head.morphTargetInfluences[
+  //         nodes.Wolf3D_Head.morphTargetDictionary[target]
+  //       ],
+  //       value,
+  //       speed
+  //     );
+  //   }
+  //   if (nodes.Wolf3D_Teeth.morphTargetDictionary[target] !== undefined) {
+  //     nodes.Wolf3D_Teeth.morphTargetInfluences[
+  //       nodes.Wolf3D_Teeth.morphTargetDictionary[target]
+  //     ] = MathUtils.lerp(
+  //       nodes.Wolf3D_Teeth.morphTargetInfluences[
+  //         nodes.Wolf3D_Teeth.morphTargetDictionary[target]
+  //       ],
+  //       value,
+  //       speed
+  //     );
+  //   }
+  // };
 
-  const incrementMorph = (morphName, targetValue, duration) => {
+  const incrementMorph = (morphName: string, targetValue: number, duration: number) => {
     const stepTime = 5;
     const steps = duration / stepTime;
     const increment = targetValue / steps;
@@ -80,7 +75,7 @@ export const Teacher = ({  ...props }) => {
     incrementStep();
   };
 
-  const morphFunction = (morphName, value, duration = 0) => {
+  const morphFunction = (morphName: string, value: number, duration = 0) => {
     if (duration > 0) {
       incrementMorph(morphName, value, duration);
     } else {
@@ -97,7 +92,7 @@ export const Teacher = ({  ...props }) => {
     }
   };
 
-  function updateViseme(timestamp) {
+  function updateViseme(timestamp: number) {
     if (!viseme) return;
     Object.values(visemeMap).map((e) => {
       morphFunction(e, 0, 0);
@@ -112,22 +107,20 @@ export const Teacher = ({  ...props }) => {
 
   useFrame((state) => {
     if (getPlaying() && audio) {
-      updateViseme(audio.currentTime.toFixed(2));
+      updateViseme(Number(audio.currentTime.toFixed(2)));
     } else {
       Object.values(visemeMap).map((e) => {
         morphFunction(e, 0, 0);
       });
     }
-
-    group.current.getObjectByName("Head").lookAt(state.camera.position);
+    if (group.current) {
+      group.current.getObjectByName("Head").lookAt(state.camera.position);
+    }
   });
   return (
-    <group {...props} ref={group}>
-      <primitive object={scene} rotation={[0, degToRad(-60), 0]} />
+    <group ref={group} position={[0, -1.5, 3.9]}>
+      <primitive object={scene} />
     </group>
   );
 };
 
-teachers.forEach((teacher) => {
-  useGLTF.preload(`/models/custom/${teacher}.glb`);
-});

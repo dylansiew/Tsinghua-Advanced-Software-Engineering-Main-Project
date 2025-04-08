@@ -8,9 +8,12 @@ from app.genai.tts import tts_agent
 from app.utils.db import message_db
 from app.utils.ws import conversation_ws_manager
 from fastapi.responses import FileResponse
-from models.conversation.conversation import (AudioResponse,
-                                              ConversationMessage,
-                                              ConversationMessageType)
+from models.conversation.conversation import (
+    AudioMessage,
+    ConversationMessage,
+    ConversationMessageType,
+    QueryMessage,
+)
 from models.conversation.message import Message
 from models.conversation.role import MessageRole
 from models.tts.viseme import AudioData
@@ -33,10 +36,9 @@ async def save_messages(conversation_id: str, query: str, llm_response: str):
     message_db.insert_message(assistant_message)
 
 
-async def create_response(audio_response: AudioResponse):
+async def create_response(audio_response: AudioMessage):
     response = ConversationMessage(
-        type=ConversationMessageType.AUDIO_RESPONSE,
-        data=audio_response
+        type=ConversationMessageType.AUDIO_RESPONSE, data=audio_response
     )
     return response
 
@@ -44,10 +46,15 @@ async def create_response(audio_response: AudioResponse):
 cache = "cache.json"
 
 
-async def talk_to_llm(conversation_id: str, query: str):
+async def talk_to_llm(conversation_id: str, query: QueryMessage):
+    # print(f"{query=}")
     # with open(cache, "r") as file:
     #     cache_data = json.load(file)
-    #     response = ConversationMessage(**cache_data)
+
+    #     response = ConversationMessage(
+    #         type=ConversationMessageType.AUDIO_RESPONSE,
+    #         data=AudioMessage(**cache_data["data"]),
+    #     )
     # await conversation_ws_manager.send_personal_message(
     #     message=response, user_id=conversation_id
     # )
@@ -62,14 +69,14 @@ async def talk_to_llm(conversation_id: str, query: str):
         system_prompt = file.read()
 
     llm_response = llm_agent.generate_response(
-        query=query,
+        query=query.query,
         message_history=formatted_messages,
         response_model=str,
         system_prompt=system_prompt,
     )
 
     # Fire-and-forget background task to save messages
-    asyncio.create_task(save_messages(conversation_id, query, llm_response))
+    asyncio.create_task(save_messages(conversation_id, query.query, llm_response))
 
     # await conversation_ws_manager.send_personal_message(
     #     message=llm_response, user_id=conversation_id
@@ -82,13 +89,14 @@ async def talk_to_llm(conversation_id: str, query: str):
     if not audio_response:
         print("Failed to generate TTS")
         return None
-    
-    print(f"{audio_response=}")
+
     response = await create_response(audio_response)
 
+    json_data = {"type": "audio_response", "data": audio_response.model_dump()}
+
     with open(cache, "w") as file:
-        json.dump(response.model_dump(), file)
-        
+        json.dump(json_data, file)
+
     await conversation_ws_manager.send_personal_message(
         message=response, user_id=conversation_id
     )

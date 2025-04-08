@@ -7,7 +7,7 @@ from app.genai.tts.base_agent import Base_TTS_Agent
 from azure.cognitiveservices.speech import SpeechConfig, SpeechSynthesizer
 from azure.cognitiveservices.speech.audio import AudioOutputConfig
 from dotenv import load_dotenv
-from models.conversation.conversation import AudioResponse
+from models.conversation.conversation import AudioMessage
 from models.tts.viseme import Viseme, WordOffset
 
 load_dotenv()
@@ -114,7 +114,7 @@ class Azure_Agent(Base_TTS_Agent):
         viseme, word_boundary = self.tts_with_viseme(
             file_path=output_file, toSpeak=text, voice_id=voice
         )
-        return AudioResponse(
+        return AudioMessage(
             viseme=[
                 Viseme(stopTime=item[0], readyPlayerMeViseme=getAvatarViseme(item[1]))
                 for item in viseme

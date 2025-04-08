@@ -45,19 +45,19 @@ class Base_LLM_Agent:
 
     def generate_response(
         self,
-        prompt: str,
+        query: str,
         message_history: list[dict] = [],
         response_model=str,
         system_prompt: str = "",
     ) -> str:
-        if not self.__validate_message_history(message_history):
-            raise ValueError("Invalid message history")
+        # if not self.__validate_message_history(message_history):
+        #     raise ValueError("Invalid message history")
 
         # Add the new message to the message history
         if len(system_prompt) > 0:
             message_history.append({"role": "system", "content": system_prompt})
 
-        message_history.append({"role": self.user_prefix, "content": prompt})
+        message_history.append({"role": self.user_prefix, "content": query})
 
         response = None
 
