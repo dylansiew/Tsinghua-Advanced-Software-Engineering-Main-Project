@@ -6,6 +6,7 @@ aiosqlite==0.21.0
 annotated-types==0.7.0
 anyio==4.9.0
 attrs==25.3.0
+azure-cognitiveservices-speech==1.43.0
 beautifulsoup4==4.13.3
 certifi==2025.1.31
 cffi==1.17.1
@@ -242,6 +243,7 @@ typing_extensions==4.13.0
 urllib3==2.3.0
 uvicorn==0.34.0
 verlib2==0.3.1
+websockets==15.0.1
 xxhash==3.5.0
 yarl==1.18.3
 zipp==3.21.0
