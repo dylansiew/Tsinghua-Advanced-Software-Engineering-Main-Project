@@ -22,7 +22,8 @@ const WebsocketManager: React.FC<WebsocketManagerProps> = ({
   const reconnectTimeout = useRef<NodeJS.Timeout | null>(null);
 
   function connectWebSocket(): void {
-    const ws = new WebSocket(`${baseURL}/${url}`);
+    const websocketUrl = baseURL.replace("https", "wss");
+    const ws = new WebSocket(`${websocketUrl}/${url}`);
     setwebsocket(ws);
     
     ws.onopen = () => {
