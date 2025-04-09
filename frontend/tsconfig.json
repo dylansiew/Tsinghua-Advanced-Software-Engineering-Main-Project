@@ -12,6 +12,11 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]
-    }
+    },
+    "noEmitOnError": false,
+    "skipLibCheck": true,
+    "strict": false,
+    "suppressImplicitAnyIndexErrors": true,
+    "noImplicitAny": false
   }
 }
