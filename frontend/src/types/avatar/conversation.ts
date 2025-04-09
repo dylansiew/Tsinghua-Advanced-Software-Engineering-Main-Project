@@ -19,7 +19,7 @@ export interface WordOffset {
   word_length: number;
 }
 
-export interface AudioResponse {
+export interface AudioMessage {
   base64_audio: string;
   viseme: Viseme[];
   word_boundary: WordOffset[];

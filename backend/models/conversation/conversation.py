@@ -13,9 +13,12 @@ class ConversationMessageType(str, Enum):
 
 class ConversationMessage(BaseModel):
     type: ConversationMessageType
-    data: BaseModel | str
+    data: BaseModel
 
-class AudioResponse(BaseModel):
+class QueryMessage(BaseModel):
+    query: str
+
+class AudioMessage(BaseModel):
     base64_audio: str
     viseme: List[Viseme]
     word_boundary: List[WordOffset]
