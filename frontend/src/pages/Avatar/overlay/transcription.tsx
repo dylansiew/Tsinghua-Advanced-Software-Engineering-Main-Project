@@ -1,3 +1,6 @@
+import useSessionInitializer from "@/zustand/Avatar/Initializer";
+import useQuerySent from "@/zustand/Avatar/QuerySent";
+import { useAvatarSpeak } from "@/zustand/Avatar/Speak";
 import useSTT from "@/zustand/Avatar/STT";
 import { useEffect, useRef } from "react";
 import SpeechRecognition, {
@@ -14,6 +17,11 @@ const TranscriptionManager = ({
   const { listening, browserSupportsSpeechRecognition, transcript } =
     useSpeechRecognition();
   const { spokenChunk, setTranscript, chunkConsumed } = useSTT();
+  const { getPlaying } = useAvatarSpeak();
+  const { sessionID } = useSessionInitializer();
+  const { querySent } = useQuerySent();
+
+  const playing = getPlaying();
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   function startListening() {
@@ -23,14 +31,20 @@ const TranscriptionManager = ({
     });
   }
 
+  function stopListening() {
+    SpeechRecognition.stopListening();
+  }
   if (!browserSupportsSpeechRecognition) {
     return <span>Browser doesn't support speech recognition.</span>;
   }
 
   useEffect(() => {
-    if (listening) return;
-    startListening();
-  }, []);
+    if (playing || !sessionID || querySent) {
+      stopListening();
+    } else if (!listening) {
+      startListening();
+    }
+  }, [playing, sessionID, querySent]);
 
   useEffect(() => {
     setTranscript(transcript);

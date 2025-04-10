@@ -4,7 +4,8 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from app.genai.tts.base_agent import Base_TTS_Agent
-from azure.cognitiveservices.speech import SpeechConfig, SpeechSynthesizer
+from azure.cognitiveservices.speech import (AudioDataStream, SpeechConfig,
+                                            SpeechSynthesizer)
 from azure.cognitiveservices.speech.audio import AudioOutputConfig
 from dotenv import load_dotenv
 from models.conversation.conversation import AudioMessage
@@ -38,6 +39,7 @@ visemeMapping = {
     21: "viseme_PP",
 }
 
+
 def mp3_to_base64(file_path: str):
 
     base64_audio = ""
@@ -51,6 +53,7 @@ def mp3_to_base64(file_path: str):
 
     return base64_audio
 
+
 def getAvatarViseme(id: int):
     if id < len(visemeMapping) and id >= 0:
         return visemeMapping[id]
@@ -62,7 +65,7 @@ class Azure_Agent(Base_TTS_Agent):
 
     def __init__(self):
         super().__init__("Azure")
-        self.default_voice = "zh-CN-YunyiMultilingualNeural"
+        self.default_voice = "en-SG-LunaNeural"
         self.client = SpeechConfig(
             subscription=os.getenv("AZURE_SPEECH_KEY"),
             region=os.getenv("AZURE_SPEECH_REGION"),
@@ -71,13 +74,16 @@ class Azure_Agent(Base_TTS_Agent):
         self.client.speech_recognition_language = "zh-CN"
         self.client.request_word_level_timestamps()
         self.client.speech_synthesis_voice_name = self.default_voice
+        self.ssml_string = open("app/genai/tts/test.xml", "r", encoding="utf-8-sig").read()
+
+    def _format_ssml(self, text: str):
+        formatted_ssml = self.ssml_string.format(text=text)
+        return formatted_ssml
 
     def tts_with_viseme(self, file_path, toSpeak, voice_id: Optional[str] = None):
-        
+
         audioOutputConfig = AudioOutputConfig(filename=file_path)
-        synthesizer = SpeechSynthesizer(
-            speech_config=self.client, audio_config=audioOutputConfig
-        )
+        synthesizer = SpeechSynthesizer(speech_config=self.client, audio_config=None)
         sorted_array = []
         word_boundary = []
         start_time = datetime.now()
@@ -100,17 +106,23 @@ class Azure_Agent(Base_TTS_Agent):
             )
             word_boundary.append(offset)
 
+        ssml_string = self._format_ssml(toSpeak)
+
         synthesizer.viseme_received.connect(addViseme)
         synthesizer.synthesis_completed.connect(endViseme)
         synthesizer.synthesis_word_boundary.connect(addBoundary)
-        synthesizer.speak_text(toSpeak)
+        speech_synthesis_result = synthesizer.speak_ssml_async(ssml_string).get()
+
+        stream = AudioDataStream(speech_synthesis_result)
+        stream.save_to_wav_file(file_path)
+
         while len(sorted_array) == 0 and (datetime.now() - start_time) < timedelta(
             seconds=10
         ):
             pass
         return sorted_array, word_boundary
 
-    def _tts(self, text: str, output_file: str, voice: str) -> bool:            
+    def _tts(self, text: str, output_file: str, voice: str) -> bool:
         viseme, word_boundary = self.tts_with_viseme(
             file_path=output_file, toSpeak=text, voice_id=voice
         )
@@ -120,5 +132,5 @@ class Azure_Agent(Base_TTS_Agent):
                 for item in viseme
             ],
             word_boundary=word_boundary,
-            base64_audio=mp3_to_base64(output_file)
+            base64_audio=mp3_to_base64(output_file),
         )

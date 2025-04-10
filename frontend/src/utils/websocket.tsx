@@ -22,10 +22,12 @@ const WebsocketManager: React.FC<WebsocketManagerProps> = ({
   const reconnectTimeout = useRef<NodeJS.Timeout | null>(null);
 
   function connectWebSocket(): void {
-    const websocketUrl = baseURL.replace("https", "wss");
-    const ws = new WebSocket(`${websocketUrl}/${url}`);
+    const websocketBaseURL = baseURL.replace("http", "ws");
+    const websocketUrl = `${websocketBaseURL}/${url}`;
+    console.log("websocketUrl", websocketUrl);
+    const ws = new WebSocket(websocketUrl);
     setwebsocket(ws);
-    
+
     ws.onopen = () => {
       //   console.log("WebSocket connected");
       setIsConnected(true);

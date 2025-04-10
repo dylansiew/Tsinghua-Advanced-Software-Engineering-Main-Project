@@ -55,4 +55,4 @@ def stream_test_audio():
 @test_router.get("/speak")
 async def test_speak(text: str):
     print(text)
-    return tts_agent._tts(text, "data/tts/output/test.mp3", "voice1")
+    return tts_agent._tts(text, "data/tts/output/test2.mp3", "voice1")
