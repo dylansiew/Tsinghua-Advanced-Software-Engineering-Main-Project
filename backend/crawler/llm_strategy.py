@@ -14,11 +14,37 @@ class EcommerceRecommender:
     def __init__(self, search_engines=None, captcha_key: Optional[str] = None):
         load_dotenv()
         self.search_engines = search_engines or [
+            ###{
+            ###    "name": "Amazon", 
+            ###    "url": "https://www.amazon.com/s?k=",
+            ###    "config": {
+            ###        "wait_for": "div.s-result-item",
+            ###        "js": """
+            ###            // Random scroll behavior
+            ###            for (let i = 0; i < 5; i++) {
+            ###                window.scrollBy(0, Math.floor(Math.random() * 300) + 100);
+            ###                await new Promise(r => setTimeout(r, Math.floor(Math.random() * 1000) + 500));
+            ###            }
+            ###            
+            ###            // Move mouse randomly (when not in headless)
+            ###            if (document.createEvent) {
+            ###                for (let i = 0; i < 3; i++) {
+            ###                    const evt = document.createEvent('MouseEvents');
+            ###                    const x = Math.floor(Math.random() * window.innerWidth);
+            ###                    const y = Math.floor(Math.random() * window.innerHeight);
+            ###                    evt.initMouseEvent('mousemove', true, true, window, 0, 0, 0, x, y, false, false, false, false, 0, null);
+            ###                    document.dispatchEvent(evt);
+            ###                    await new Promise(r => setTimeout(r, Math.floor(Math.random() * 500) + 200));
+            ###                }
+            ###            }
+            ###        """
+            ###    }
+            ###},
             {
-                "name": "Amazon", 
-                "url": "https://www.amazon.com/s?k=",
+                "name": "AliExpress",
+                "url": "https://www.aliexpress.com/wholesale?SearchText=",
                 "config": {
-                    "wait_for": "div.s-result-item",
+                    "wait_for": "div.product-snippet",
                     "js": """
                         // Random scroll behavior
                         for (let i = 0; i < 5; i++) {
@@ -65,7 +91,6 @@ class EcommerceRecommender:
             extra_args={"temperature": 0.0, "max_tokens": 10000}
         )
 
-        # Explicitly set extraction strategy in config
         self.crawl_config = CrawlerRunConfig(
             extraction_strategy=self.llm_strategy,
             cache_mode=CacheMode.BYPASS,
@@ -122,15 +147,18 @@ class EcommerceRecommender:
                 magic=True,
                 simulate_user=True
             )
-
+            print(result.extracted_content)
             if result and result.html:
                 soup = BeautifulSoup(result.html, "html.parser")
                 search_items = soup.select("div.s-result-item[data-asin]:not([data-asin=''])")[:10]
+                with open("search_results.html", "w", encoding="utf-8") as f:
+                    f.write(result.html)
 
             products = []
             for item in search_items:
                 product_name = item.find('h2', class_='a-size-base-plus a-spacing-none a-color-base a-text-normal').get_text(strip=True)
-                price = item.select_one(".a-price .a-price-whole").get_text(strip=True) if item.select_one(".a-price .a-price-whole") else "N/A"
+                whole, fraction = item.select_one(".a-price .a-price-whole"), item.select_one(".a-price .a-price-fraction")
+                price = f"{whole.get_text(strip=True).rstrip(".")}.{fraction.get_text(strip=True)}" if whole and fraction else "N/A"
                 rating = item.select_one(".a-icon-alt").get_text(strip=True) if item.select_one(".a-icon-alt") else "N/A"
                 reviews = item.select_one(".a-size-base").get_text(strip=True) if item.select_one(".a-size-base") else "N/A"
                 url = "https://www.amazon.com" + item.select_one("h2 a.a-text-normal")["href"] if item.select_one("h2 a.a-text-normal") else "N/A"
