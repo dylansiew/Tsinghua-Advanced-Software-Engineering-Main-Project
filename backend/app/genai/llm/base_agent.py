@@ -76,3 +76,8 @@ class Base_LLM_Agent:
             raise ValueError(f"Response is None for agent {self.agent_name}")
 
         return response
+
+    def _generate_tool_call_response(self, message_history: list[dict], tools: list[dict]) -> str:
+        raise NotImplementedError(
+            "Subclasses must implement _generate_tool_call_response"
+        )

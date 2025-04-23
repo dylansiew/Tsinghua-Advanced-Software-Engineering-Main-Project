@@ -41,7 +41,7 @@ export const AvatarOverlay = () => {
   }
 
   function onSendMessage(message: Float32Array) {
-    if (message.length == 0 || !websocket || !sessionID || querySent || isPlaying) return;
+    if (message.length == 0 || !websocket || !sessionID || isPlaying) return;
     const data: ConversationMessage = {
       type: ConversationMessageType.QUERY,
       data: { query: message },

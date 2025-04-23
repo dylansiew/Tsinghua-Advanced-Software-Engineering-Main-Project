@@ -4,6 +4,7 @@ import os
 from app.genai.llm import llm_agent
 from app.genai.stt import stt_agent
 from app.genai.tts import tts_agent
+from app.pipelines.conversation.search import llm_search_product
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from models.conversation.message import Message
@@ -56,3 +57,10 @@ def stream_test_audio():
 async def test_speak(text: str):
     print(text)
     return tts_agent._tts(text, "data/tts/output/test2.mp3", "voice1")
+
+history = []
+@test_router.get("/search")
+async def test_search(query: str):
+    response = await llm_search_product(query, history)
+    history.append({"role": "assistant", "content": response})
+    return response

@@ -7,6 +7,7 @@ import numpy as np
 from app.genai.llm import llm_agent
 from app.genai.stt import stt_agent
 from app.genai.tts import tts_agent
+from app.pipelines.conversation.audio_processing import identify_most_similar
 from app.utils.db import message_db
 from app.utils.ws import conversation_ws_manager
 from fastapi.responses import FileResponse
@@ -48,7 +49,6 @@ async def create_response(audio_response: AudioMessage):
 cache = "cache.json"
 
 
-
 def dict_to_wav(data: dict[str, float], filename: str, sample_rate: int = 16000):
     # Sort the dictionary by keys to ensure proper order
     sorted_keys = sorted(data.keys(), key=int)
@@ -63,29 +63,46 @@ def dict_to_wav(data: dict[str, float], filename: str, sample_rate: int = 16000)
 
     write(filename, sample_rate, samples_int16)
 
+
 async def transcribe_audio(filename: str):
     return stt_agent.transcribe(filename)
+
 
 querying = {}
 
 
 def verify_audio(filename: str):
-    verifier = SpeakerRecognition.from_hparams(source="speechbrain/spkrec-ecapa-voxceleb")
+    verifier = SpeakerRecognition.from_hparams(
+        source="speechbrain/spkrec-ecapa-voxceleb"
+    )
     score, prediction = verifier.verify_files("data/tts/output/reference.wav", filename)
     score_value = score.item()
     print("Similarity score:", score_value)
     return score_value
 
+
 async def talk_to_llm(conversation_id: str, query: QueryMessage):
     if conversation_id in querying and querying[conversation_id]:
         return
     querying[conversation_id] = True
+    
+    print("Received audio")
     filename = f"data/tts/output/{conversation_id}.wav"
+
+    reference_paths = [
+        "data/tts/output/reference.wav",
+        "data/tts/output/reference2.wav",
+        "data/tts/output/reference3.wav",
+    ]
+    
     dict_to_wav(query.query, filename)
-    score = verify_audio(filename)
-    if score < 0.5:
-        querying[conversation_id] = False
-        return
+    # score = verify_audio(filename)
+    # print(f"{score=}")
+    # querying[conversation_id] = False
+    # return
+    # if score < 0.5:
+    #     querying[conversation_id] = False
+    #     return
     transcription = await transcribe_audio(filename)
     if not transcription:
         return
