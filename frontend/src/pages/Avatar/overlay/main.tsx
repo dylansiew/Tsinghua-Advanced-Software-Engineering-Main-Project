@@ -14,12 +14,12 @@ import { AvatarInitializer } from "./initializer";
 import { Status } from "./status";
 import TranscriptionManager from "./transcription";
 
-const TIMEOUT_SECONDS = 2;
+const MIN_SPEECH_DURATION = 1;
 
 export const AvatarOverlay = () => {
   const { setIsConnected, isConnected, websocket, setwebsocket } =
     useWebsocket();
-  const { setAudio, setViseme, setWordOffset } = useAvatarSpeak();
+  const { setAudio, setViseme, setWordOffset, isPlaying } = useAvatarSpeak();
   const { querySent, setQuerySent } = useQuerySent();
   const { sessionID } = useSessionInitializer();
 
@@ -29,9 +29,7 @@ export const AvatarOverlay = () => {
     switch (data.type) {
       case ConversationMessageType.AUDIO_RESPONSE:
         try {
-          console.log(data);
           const AudioMessage: AudioMessage = data.data;
-          console.log(AudioMessage);
           setAudio(AudioMessage.base64_audio);
           setViseme(AudioMessage.viseme);
           setWordOffset(AudioMessage.word_boundary);
@@ -42,8 +40,8 @@ export const AvatarOverlay = () => {
     }
   }
 
-  function onSendMessage(message: string) {
-    if (message.length == 0 || !websocket || querySent || !sessionID) return;
+  function onSendMessage(message: Float32Array) {
+    if (message.length == 0 || !websocket || !sessionID || querySent || isPlaying) return;
     const data: ConversationMessage = {
       type: ConversationMessageType.QUERY,
       data: { query: message },
@@ -73,7 +71,7 @@ export const AvatarOverlay = () => {
       <Status />
       <TranscriptionManager
         onSendMessage={onSendMessage}
-        timeout={TIMEOUT_SECONDS}
+        timeout={MIN_SPEECH_DURATION}
       />
     </div>
   );

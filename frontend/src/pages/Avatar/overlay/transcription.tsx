@@ -1,80 +1,36 @@
-import useSessionInitializer from "@/zustand/Avatar/Initializer";
-import useQuerySent from "@/zustand/Avatar/QuerySent";
-import { useAvatarSpeak } from "@/zustand/Avatar/Speak";
-import useSTT from "@/zustand/Avatar/STT";
-import { useEffect, useRef } from "react";
-import SpeechRecognition, {
-  useSpeechRecognition,
-} from "react-speech-recognition";
+import { useMicVAD } from "@ricky0123/vad-react";
+
+function getAudioDurationFromFloat32Array(
+  audioData: Float32Array,
+  sampleRate = 16000
+): number {
+  return audioData.length / sampleRate;
+}
 
 const TranscriptionManager = ({
   onSendMessage,
   timeout,
 }: {
-  onSendMessage: (message: string) => void;
+  onSendMessage: (message: Float32Array) => void;
   timeout: number;
 }) => {
-  const { listening, browserSupportsSpeechRecognition, transcript } =
-    useSpeechRecognition();
-  const { spokenChunk, setTranscript, chunkConsumed } = useSTT();
-  const { getPlaying } = useAvatarSpeak();
-  const { sessionID } = useSessionInitializer();
-  const { querySent } = useQuerySent();
-
-  const playing = getPlaying();
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
-
-  function startListening() {
-    SpeechRecognition.startListening({
-      language: "en-US",
-      continuous: true,
-    });
-  }
-
-  function stopListening() {
-    SpeechRecognition.stopListening();
-  }
-  if (!browserSupportsSpeechRecognition) {
-    return <span>Browser doesn't support speech recognition.</span>;
-  }
-
-  useEffect(() => {
-    if (playing || !sessionID || querySent) {
-      stopListening();
-    } else if (!listening) {
-      startListening();
-    }
-  }, [playing, sessionID, querySent]);
-
-  useEffect(() => {
-    setTranscript(transcript);
-
-    // Clear existing timer
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-    }
-
-    // Set new timer
-    timerRef.current = setTimeout(() => {
-      onSendMessage(spokenChunk);
-      chunkConsumed();
-    }, timeout * 1000);
-
-    // Cleanup timer on unmount
-    return () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
+  const vad = useMicVAD({
+    onSpeechEnd: (audio) => {
+      try {
+        const duration = getAudioDurationFromFloat32Array(audio);
+        if (duration > timeout) {
+          onSendMessage(audio);
+        }
+      } catch (error) {
+        console.error("Error getting audio duration:", error);
       }
-    };
-  }, [transcript, chunkConsumed]);
+    },
+    positiveSpeechThreshold: 0.8,
+  });
 
   return (
-    <div className="absolute bottom-5 left-0 p-2 w-full flex flex-col items-center justify-center">
-      {spokenChunk.length > 0 && (
-        <div className="bg-gray-800 p-2 rounded-sm text-center text-white">
-          {spokenChunk}
-        </div>
-      )}
+    <div className="absolute top-0 left-0 bg-green-500">
+      {vad.userSpeaking && "User is speaking"}
     </div>
   );
 };
