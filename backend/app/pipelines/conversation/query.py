@@ -3,20 +3,22 @@ import base64
 import json
 from datetime import datetime
 
+import numpy as np
 from app.genai.llm import llm_agent
+from app.genai.stt import stt_agent
 from app.genai.tts import tts_agent
 from app.utils.db import message_db
 from app.utils.ws import conversation_ws_manager
 from fastapi.responses import FileResponse
-from models.conversation.conversation import (
-    AudioMessage,
-    ConversationMessage,
-    ConversationMessageType,
-    QueryMessage,
-)
+from models.conversation.conversation import (AudioMessage,
+                                              ConversationMessage,
+                                              ConversationMessageType,
+                                              QueryMessage)
 from models.conversation.message import Message
 from models.conversation.role import MessageRole
 from models.tts.viseme import AudioData
+from scipy.io.wavfile import write
+from speechbrain.pretrained import SpeakerRecognition
 
 
 async def save_messages(conversation_id: str, query: str, llm_response: str):
@@ -46,8 +48,48 @@ async def create_response(audio_response: AudioMessage):
 cache = "cache.json"
 
 
+
+def dict_to_wav(data: dict[str, float], filename: str, sample_rate: int = 16000):
+    # Sort the dictionary by keys to ensure proper order
+    sorted_keys = sorted(data.keys(), key=int)
+    samples = np.array([data[k] for k in sorted_keys], dtype=np.float32)
+
+    # Normalize to the range of int16
+    max_val = np.max(np.abs(samples))
+    if max_val > 0:
+        samples = samples / max_val
+
+    samples_int16 = np.int16(samples * 32767)
+
+    write(filename, sample_rate, samples_int16)
+
+async def transcribe_audio(filename: str):
+    return stt_agent.transcribe(filename)
+
+querying = {}
+
+
+def verify_audio(filename: str):
+    verifier = SpeakerRecognition.from_hparams(source="speechbrain/spkrec-ecapa-voxceleb")
+    score, prediction = verifier.verify_files("data/tts/output/reference.wav", filename)
+    score_value = score.item()
+    print("Similarity score:", score_value)
+    return score_value
+
 async def talk_to_llm(conversation_id: str, query: QueryMessage):
-    # print(f"{query=}")
+    if conversation_id in querying and querying[conversation_id]:
+        return
+    querying[conversation_id] = True
+    filename = f"data/tts/output/{conversation_id}.wav"
+    dict_to_wav(query.query, filename)
+    score = verify_audio(filename)
+    if score < 0.5:
+        querying[conversation_id] = False
+        return
+    transcription = await transcribe_audio(filename)
+    if not transcription:
+        return
+
     # with open(cache, "r") as file:
     #     cache_data = json.load(file)
 
@@ -62,21 +104,21 @@ async def talk_to_llm(conversation_id: str, query: QueryMessage):
     messages = message_db.get_all_messages(conversation_id)
     formatted_messages = [message.to_gpt_message() for message in messages]
 
-    print(f"{formatted_messages=}")
+    print(f"{transcription=}")
 
     system_prompt_filepath = "app/genai/llm/prompts/Tasha/system.txt"
     with open(system_prompt_filepath, "r") as file:
         system_prompt = file.read()
 
     llm_response = llm_agent.generate_response(
-        query=query.query,
+        query=transcription,
         message_history=formatted_messages,
         response_model=str,
         system_prompt=system_prompt,
     )
 
     # Fire-and-forget background task to save messages
-    asyncio.create_task(save_messages(conversation_id, query.query, llm_response))
+    asyncio.create_task(save_messages(conversation_id, transcription, llm_response))
 
     # await conversation_ws_manager.send_personal_message(
     #     message=llm_response, user_id=conversation_id
@@ -94,9 +136,10 @@ async def talk_to_llm(conversation_id: str, query: QueryMessage):
 
     json_data = {"type": "audio_response", "data": audio_response.model_dump()}
 
-    with open(cache, "w") as file:
-        json.dump(json_data, file)
+    # with open(cache, "w") as file:
+    #     json.dump(json_data, file)
 
     await conversation_ws_manager.send_personal_message(
         message=response, user_id=conversation_id
     )
+    querying[conversation_id] = False

@@ -1,5 +1,5 @@
 from enum import Enum, unique
-from typing import List
+from typing import Dict, List
 
 from models.tts.viseme import Viseme, WordOffset
 from pydantic import BaseModel
@@ -16,7 +16,7 @@ class ConversationMessage(BaseModel):
     data: BaseModel
 
 class QueryMessage(BaseModel):
-    query: str
+    query: Dict[str, float]
 
 class AudioMessage(BaseModel):
     base64_audio: str

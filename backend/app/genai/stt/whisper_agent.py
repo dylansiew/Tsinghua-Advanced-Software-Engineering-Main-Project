@@ -6,16 +6,16 @@ from openai import OpenAI
 
 load_dotenv()
 
+
 class WhisperAgent(Base_STT_Agent):
     def __init__(self):
         super().__init__("Whisper")
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        self.model = "whisper-1"
-        
+        self.model = "gpt-4o-mini-transcribe"
+
     def _transcribe_audio(self, audio_file: str) -> str:
         audio = open(audio_file, "rb")
-        result = self.client.audio.transcriptions.create(model=self.model, file=audio)
+        result = self.client.audio.transcriptions.create(
+            model=self.model, file=audio, language="en"
+        )
         return result.text
-        
-        
-        
