@@ -1,59 +1,106 @@
-# --- START OF FILE crawler.py ---
-
 from dotenv import load_dotenv
 import os
 import asyncio
 import json
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urljoin
 from typing import List, Dict, Any, Optional
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
-from bs4 import BeautifulSoup
-# from playwright.sync_api import sync_playwright # Not used directly here
+from bs4 import BeautifulSoup, Tag
+import re
+import traceback
+
+# --- Helper function to extract text with fallbacks ---
+def _extract_text(item_soup: Tag, selectors: List[str], default: str = "N/A") -> str:
+    """Tries multiple selectors to extract text, returning the first found."""
+    for selector in selectors:
+        try:
+            element = item_soup.select_one(selector)
+            if element:
+                # Extract text from all children, handling nested tags
+                text = element.get_text(separator=' ', strip=True)
+                if text:
+                    return ' '.join(text.split()) # Normalize whitespace
+        except Exception:
+            # print(f"Selector failed: {selector}") # Debugging
+            continue # Ignore errors with a specific selector and try the next
+    return default
+
+# --- Helper function to extract attributes with fallbacks ---
+def _extract_attribute(item_soup: Tag, selectors: List[str], attribute: str, base_url: Optional[str] = None, default: str = "N/A") -> str:
+    """Tries multiple selectors to extract an attribute, returning the first found."""
+    for selector in selectors:
+        try:
+            element = item_soup.select_one(selector)
+            if element and element.has_attr(attribute):
+                value = element[attribute].strip()
+                if value:
+                    # If it's a URL and a base_url is provided, make it absolute
+                    if attribute == 'href' and base_url:
+                        try:
+                            # Handle cases like //example.com/path -> https://example.com/path
+                            if value.startswith("//"):
+                                scheme = base_url.split('://')[0]
+                                value = scheme + ":" + value
+                            # Handle cases where it might already be absolute but lacks scheme
+                            if value.startswith("://"):
+                                scheme = base_url.split('://')[0]
+                                value = scheme + value
+                            # Ensure base_url ends with / for proper joining of relative paths
+                            if not base_url.endswith('/'):
+                                base_url += '/'
+                            return urljoin(base_url, value)
+                        except ValueError:
+                            # print(f"Warning: Could not construct absolute URL from base '{base_url}' and relative '{value}'")
+                            return value # Keep original if join fails
+                    return value
+        except Exception:
+            # print(f"Selector failed: {selector}") # Debugging
+            continue # Ignore errors with a specific selector and try the next
+    return default
 
 class EcommerceRecommender:
     def __init__(self, search_engines=None, captcha_key: Optional[str] = None):
         load_dotenv()
+        # OpenAI client removed as we are focusing on BS4 parsing
+        # self.openai_api_key = openai_api_key or os.getenv("OPENAI_API_KEY")
+        # if not self.openai_api_key:
+        #     raise ValueError("OpenAI API key not found. Set OPENAI_API_KEY environment variable.")
+        # self.openai_client = AsyncOpenAI(api_key=self.openai_api_key)
+
         self.search_engines = search_engines or [
             {
                 "name": "Amazon",
                 "url": "https://www.amazon.com/s?k=",
+                "base_url": "https://www.amazon.com",
+                "item_selector": "div.s-result-item[data-asin]:not([data-asin=''])",
                 "config": {
-                    "wait_for": "div.s-result-item", # Helps ensure results grid starts loading
-                     "js": """
-                        // Random scroll behavior (keep for potential anti-bot)
-                        for (let i = 0; i < 3; i++) { // Reduced scrolls
-                            window.scrollBy(0, Math.floor(Math.random() * 400) + 200);
-                            await new Promise(r => setTimeout(r, Math.floor(Math.random() * 700) + 300));
-                        }
-                     """
+                    "wait_for": "div.s-result-item[data-asin]",
+                    "js": """ /* Optional scroll JS */ """
                 }
             },
             {
                 "name": "AliExpress",
                 "url": "https://www.aliexpress.com/wholesale?SearchText=",
+                "base_url": "https://www.aliexpress.com",
+                "item_selector": "a.search-card-item", # Main container link for each item
                 "config": {
-                    "wait_for": "a.search-card-item", # Try waiting for the card link itself
-                    "js": """
-                       // Random scroll behavior (keep for potential anti-bot)
-                       for (let i = 0; i < 3; i++) { // Reduced scrolls
-                           window.scrollBy(0, Math.floor(Math.random() * 400) + 200);
-                           await new Promise(r => setTimeout(r, Math.floor(Math.random() * 700) + 300));
-                       }
-                    """
+                     # Wait for elements likely containing key info
+                    "wait_for": "a.search-card-item div[class*='price'], a.search-card-item h3",
+                    "js": """ /* Optional scroll JS */ """
                 }
             }
         ]
         self.crawl_config = CrawlerRunConfig(
             cache_mode=CacheMode.BYPASS,
             verbose=True,
-            magic=True,
+            magic=True, # Keep magic, might help clean up minor inconsistencies
             simulate_user=True
         )
 
         self.browser_config = BrowserConfig(
             headless=True,
             use_managed_browser=True,
-            use_persistent_context=False, # Set to False initially
+            use_persistent_context=False,
             user_data_dir=None,
             browser_type="chromium",
             proxy=None,
@@ -63,162 +110,322 @@ class EcommerceRecommender:
         """Generate search URLs for each search engine."""
         return [engine["url"] + quote_plus(query) for engine in self.search_engines]
 
-    def _parse_amazon_bs(self, html_content: str) -> list[dict]:
-        """Parses Amazon search results HTML using BeautifulSoup."""
+    def _parse_amazon_bs(self, html_content: str, base_url: str) -> list[dict]:
+        """Parses Amazon search results HTML using BeautifulSoup with robust selectors."""
         soup = BeautifulSoup(html_content, "html.parser")
         products = []
-        # Limit to first 10 results for example
         search_items = soup.select("div.s-result-item[data-asin]:not([data-asin=''])")[:10]
-        print(f"[Amazon Parser] Found {len(search_items)} potential items.")
+        print(f"[Amazon Parser] Found {len(search_items)} potential items using selector.")
 
         for item in search_items:
-            product_name = "N/A"
-            price = "N/A"
-            rating = "N/A"
-            reviews = "N/A"
-            url = "N/A"
-            seller = "N/A" # Seller info is harder to get reliably from Amazon search results page
-
+            product = {
+                "product_name": "N/A",
+                "price": "N/A",
+                "rating": "N/A",
+                "reviews": "N/A",
+                "url": "N/A",
+                "seller": "N/A",
+                "source_method": "BeautifulSoup Selectors"
+            }
             try:
-                product_name = item.find('h2', class_='a-size-base-plus a-spacing-none a-color-base a-text-normal').get_text(strip=True)
+                product_name = "N/A"
+                title_container = item.select_one('div[data-cy="title-recipe"]')
 
-                # Price
-                price_tag = item.select_one(".a-price")
-                if price_tag:
-                    whole = price_tag.select_one(".a-price-whole")
-                    fraction = price_tag.select_one(".a-price-fraction")
-                    symbol = price_tag.select_one(".a-price-symbol")
-                    if whole and fraction:
-                         price_str = f"{whole.get_text(strip=True).rstrip('.')}."\
-                                     f"{fraction.get_text(strip=True)}"
-                         if symbol:
-                             price = f"{symbol.get_text(strip=True)}{price_str}"
+                if title_container:
+                    main_link = title_container.select_one('h2 a.a-link-normal')
+                    if main_link:
+                            product_name = main_link.get_text(separator=' ', strip=True)
+                            # Basic cleanup: Remove the brand if it's duplicated at the start
+                            brand_h2_outer = title_container.select_one('h2.a-size-mini span.a-size-medium')
+                            if brand_h2_outer:
+                                brand_text = brand_h2_outer.get_text(strip=True)
+                                if product_name.startswith(brand_text):
+                                    product_name = product_name[len(brand_text):].strip()
+
+                    descriptive_h2 = title_container.select_one('h2.a-size-medium.a-color-base.a-text-normal')
+
+                    if product_name == "N/A" and descriptive_h2:
+                        # 1a. Try the direct span inside this H2 (often doesn't have extra classes)
+                        title_span = descriptive_h2.select_one('span:not([class])') # Prefer span without class if available
+                        if not title_span:
+                             title_span = descriptive_h2.select_one('span') # Fallback to any span inside
+
+                        if title_span:
+                            product_name = title_span.get_text(separator=' ', strip=True)
+                        else:
+                            # 1b. If no span, get text of the H2 itself
+                            product_name = descriptive_h2.get_text(separator=' ', strip=True)
+
+                        # 1c. Check aria-label as a potential override if name is short/bad
+                        if descriptive_h2.has_attr('aria-label') and (product_name == "N/A" or len(product_name) < 20):
+                             aria_label_name = descriptive_h2['aria-label'].strip()
+                             if len(aria_label_name) > len(product_name) + 5 or product_name == "N/A":
+                                 product_name = aria_label_name
+                                 
+                if product_name == "N/A" or len(product_name) < 5: # Also check if name is suspiciously short
+                    product_name = _extract_text(item, ['h2']) # Broadest fallback for H2 text
+
+                # Final check: If we *only* got the brand name, reset to N/A as it's likely wrong
+                if product_name != "N/A":
+                     brand_check_h2 = item.select_one('h2.a-size-mini span.a-size-medium')
+                     if brand_check_h2 and brand_check_h2.get_text(strip=True) == product_name:
+                         # Only the brand name was likely captured, which is incorrect.
+                         product_name = "N/A"
+
+                product['product_name'] = ' '.join(product_name.split()) if product_name != "N/A" else "N/A"
+
+                price_text = "N/A"
+                price_text = _extract_text(item, ['.a-price span.a-offscreen'])
+
+                if price_text == "N/A" or not re.search(r'\d', price_text):
+                    potential_price_text = _extract_text(item, ['.a-price'])
+                    if potential_price_text != "N/A" and re.search(r'[\$£€¥\d]', potential_price_text):
+                        price_text = potential_price_text
+                    elif price_text == "N/A":
+                         secondary_offer_text = _extract_text(item, ['div[data-cy="secondary-offer-recipe"] span.a-color-base'])
+                         if secondary_offer_text != "N/A" and re.search(r'[\$£€¥][\d,.]+', secondary_offer_text):
+                              price_text = secondary_offer_text
+
+
+                if price_text == "N/A" or not re.search(r'\d', price_text):
+                    whole = _extract_text(item, ['.a-price span.a-price-whole'])
+                    fraction = _extract_text(item, ['.a-price span.a-price-fraction'])
+                    symbol = _extract_text(item, ['.a-price span.a-price-symbol'])
+                    if whole != "N/A" and fraction != "N/A" and re.search(r'\d', whole) and re.search(r'\d', fraction):
+                        price_str = f"{whole.rstrip('.').replace(',','')}.{fraction}"
+                        currency_symbol = symbol if symbol != "N/A" else '$'
+                        price_text = f"{currency_symbol}{price_str}"
+                    else:
+                        price_text = "N/A"
+
+                if price_text != "N/A":
+                    price_text_cleaned = re.sub(r'(List Price:|Range:|From|sponsored|\(.*\soffers\))', '', price_text, flags=re.IGNORECASE).strip()
+                    match = re.search(r'([$£€¥]?)\s*([\d,]+\.?\d*)', price_text_cleaned)
+                    if match:
+                        symbol, number_str = match.groups()
+                        symbol = symbol or '$'
+                        number_str = number_str.replace(',', '')
+                        try:
+                            float_price = float(number_str)
+                            product['price'] = f"{symbol}{float_price:.2f}"
+                        except ValueError:
+                             product['price'] = price_text_cleaned if price_text_cleaned else "N/A"
+                    else:
+                         if price_text_cleaned and not re.fullmatch(r'[$£€¥\s]+', price_text_cleaned):
+                             product['price'] = price_text_cleaned
                          else:
-                             price = price_str # Assuming dollars if symbol missing
+                             product['price'] = "N/A"
+                else:
+                    product['price'] = "N/A"
+
+
+                # --- Rating Fallbacks (Keep as before) ---
+                product['rating'] = _extract_text(item, ['i.a-icon-star-small span.a-icon-alt'])
+                if product['rating'] == "N/A":
+                    rating_aria_tag = item.select_one('span[aria-label*="out of 5 stars"]')
+                    if rating_aria_tag:
+                        product['rating'] = rating_aria_tag.get('aria-label', "N/A").strip()
+
+                # --- Reviews Count Fallbacks (Keep cleaned logic & formatting) ---
+                reviews_link_text = _extract_text(item, ['a[href*="#customerReviews"] span.a-size-base'])
+                reviews_num_str = "N/A"
+                if reviews_link_text != "N/A":
+                     cleaned_reviews = re.sub(r'[^\d]', '', reviews_link_text)
+                     if cleaned_reviews.isdigit():
+                         reviews_num_str = cleaned_reviews
+                if reviews_num_str == "N/A":
+                    fallback_reviews = _extract_text(item, ['#acrCustomerReviewText'])
+                    if fallback_reviews != "N/A":
+                         cleaned_reviews = re.sub(r'[^\d]', '', fallback_reviews)
+                         if cleaned_reviews.isdigit():
+                             reviews_num_str = cleaned_reviews
+                try:
+                    if reviews_num_str != "N/A" and reviews_num_str.isdigit():
+                        product['reviews'] = f"{int(reviews_num_str):,}"
                     else:
-                         # Sometimes price is in a different span, e.g., .a-offscreen
-                         offscreen_price = price_tag.select_one("span.a-offscreen")
-                         if offscreen_price:
-                             price = offscreen_price.get_text(strip=True)
-
-                # Rating
-                rating_tag = item.select_one("i.a-icon-star-small") # Select the star icon container
-                if rating_tag:
-                    rating_text_tag = rating_tag.select_one("span.a-icon-alt")
-                    if rating_text_tag:
-                        rating = rating_text_tag.get_text(strip=True)
+                         product['reviews'] = reviews_num_str
+                except ValueError:
+                    product['reviews'] = reviews_num_str
 
 
-                # Reviews Count
-                reviews_tag = item.select_one("span.a-size-base") # Often the reviews count is here
-                if reviews_tag:
-                     # Check if the text contains digits, as this class is used elsewhere
-                     text = reviews_tag.get_text(strip=True).replace(',', '') # Remove commas for isdigit
-                     if text.isdigit():
-                           reviews = reviews_tag.get_text(strip=True) # Keep original format with comma
+                # --- URL Fallbacks --- (Keep as before)
+                product['url'] = _extract_attribute(item, [
+                    'h2 a.a-link-normal',
+                    'a.s-product-image-container a.a-link-normal',
+                    'a.a-link-normal.s-no-outline',
+                    'a.a-link-normal',
+                ], 'href', base_url)
 
+                # Only append if we got *some* meaningful data (e.g., a name or URL)
+                if product['product_name'] != "N/A" or product['url'] != "N/A":
+                    products.append(product)
+                else:
+                    print(f"Skipping item, insufficient data extracted: {item.get('data-asin', 'NO ASIN')}")
 
-                # URL
-                url_tag = item.select_one("a.a-link-normal.s-no-outline")
-                if url_tag and url_tag.has_attr('href'):
-                    href = url_tag['href']
-                    if href.startswith('/'):
-                        url = "https://www.amazon.com" + href
-                    else:
-                         url = href # Should ideally resolve relative URLs if needed
-
-                product = {
-                    "product_name": product_name,
-                    "price": price,
-                    "rating": rating,
-                    "reviews": reviews,
-                    "url": url,
-                    "seller": seller # Still N/A for Amazon search page
-                }
-                products.append(product)
 
             except Exception as e:
-                print(f"Error parsing Amazon item: {e}")
-                # Optional: append placeholder or log more details
-                # import traceback; print(traceback.format_exc())
+                print(f"Error parsing Amazon item: {e} - ASIN: {item.get('data-asin', 'NO ASIN')}")
+                # print(traceback.format_exc()) # Keep commented unless debugging deeply
 
         return products
-
-    def _parse_aliexpress_bs(self, html_content: str) -> list[dict]:
+    
+    def _parse_aliexpress_bs(self, html_content: str, base_url: str) -> list[dict]:
         """Parses AliExpress search results HTML using BeautifulSoup."""
         soup = BeautifulSoup(html_content, "html.parser")
         products = []
-        # Limit to first 10 results for example
-        search_items = soup.select("a.search-card-item")[:10]
-        print(f"[AliExpress Parser] Found {len(search_items)} potential items.")
+        search_items = soup.select("div.search-item-card-wrapper-gallery")[:10]
+        print(f"[AliExpress Parser] Found {len(search_items)} potential item wrappers using 'div.search-item-card-wrapper-gallery'.")
 
-        for item in search_items:
-            product_name = "N/A"
-            price = "N/A"
-            rating = "N/A"
-            reviews = "N/A" # AliExpress often shows "sold" count instead of reviews count here
-            url = "N/A"
-            seller = "N/A"
+        if not search_items:
+             search_items = soup.select("a.search-card-item")[:10]
+             print(f"[AliExpress Parser]: Found {len(search_items)} items using 'a.search-card-item'.")
 
+        for item_wrapper in search_items:
+            item = item_wrapper.select_one('a.search-card-item')
+            if not item:
+                item = item_wrapper
+
+            product = {
+                "product_name": "N/A",
+                "price": "N/A",
+                "rating": "N/A",
+                "reviews": "N/A",
+                "url": "N/A",
+                "seller": "N/A",
+                "source_method": "BeautifulSoup Selectors"
+            }
             try:
-                # Product Name
-                name_tag = item.select_one("h3.kc_j0")
-                if name_tag:
-                    product_name = name_tag.get_text(strip=True)
+                # product name
+                item.find('h2', class_='a-size-base-plus a-spacing-none a-color-base a-text-normal')
+                product['product_name'] = _extract_text(item, [
+                    'h2[class_="a-size-base-plus a-spacing-none a-color-base a-text-normal"]', 'h3.kc_j0', 'h3[class*="title"]', 'h1[class*="title"]',
+                    'div[class*="title--wrap"] > div[class*="title--"]', 'h3',
+                ])
 
-                # Price
-                price_tag = item.select_one("div.kc_k1")
-                if price_tag:
-                    price = price_tag.get_text(separator='', strip=True)
-                    price = ' '.join(price.split()) # Basic cleanup
+                # price
+                price_text = "N/A"
+                price_selectors = [
+                    'div.kc_k1', 'div[class*="price--current"]', 'div[class*="price-sale"]',
+                    'div[class*="price"] span[class*="priceTheMaximum"]', 'div[class*="price"]',
+                ]
+                for selector in price_selectors:
+                    price_container = item.select_one(selector)
+                    if price_container:
+                        # Get text directly from children/spans, joining without extra spaces
+                        price_parts = [span.get_text(strip=True) for span in price_container.find_all(recursive=False) if span.get_text(strip=True)]
+                        if not price_parts: # Fallback if structure differs
+                             price_parts = [t.strip() for t in price_container.find_all(text=True, recursive=True) if t.strip()]
 
-                # Rating & Reviews/Sales Count (Combined logic as they are in same div)
-                rating_spans = item.select("div.kc_j7 span.kc_jv")
-                if rating_spans:
-                     # Check first span for rating
-                     potential_rating = rating_spans[0].get_text(strip=True)
-                     # Basic check if it looks like a rating number (e.g., "4.7", "4,7")
-                     if potential_rating.replace(',', '').replace('.', '', 1).isdigit():
-                         rating = potential_rating
-                     # Check last span for sales count
-                     if len(rating_spans) > 0:
-                         sales_text = rating_spans[-1].get_text(strip=True)
-                         if "vendidos" in sales_text.lower() or "sold" in sales_text.lower() or "ventes" in sales_text.lower():
-                              reviews = sales_text # Keep the full text like "1.000+ vendidos"
-                         # If rating wasn't found in first span, maybe it's in the last one? (Less likely)
-                         elif rating == "N/A" and sales_text.replace(',', '').replace('.', '', 1).isdigit():
-                              rating = sales_text
+                        if price_parts:
+                            raw_price = "".join(price_parts)
+                            # Use regex to extract currency symbol and number cleanly
+                            match = re.search(r'([€$£¥]?)\s*([\d.,]+)\s*([€$£¥]?)', raw_price.replace(' ', '')) # Remove spaces first
+                            if match:
+                                 symbol_before, number_str, symbol_after = match.groups()
+                                 # Normalize number format (use '.' as decimal separator)
+                                 if ',' in number_str and '.' in number_str: # Handle thousands separator e.g., 1.234,56
+                                     number_str = number_str.replace('.', '').replace(',', '.')
+                                 elif ',' in number_str: # Handle comma decimal e.g., 9,45
+                                     number_str = number_str.replace(',', '.')
+
+                                 # Attempt to convert to float for validation/potential calculation
+                                 try:
+                                     float_price = float(number_str)
+                                     # Determine currency symbol (prefer symbol before number)
+                                     symbol = symbol_before or symbol_after or '€' # Default to Euro if none found/needed
+                                     price_text = f"{symbol}{float_price:.2f}" # Format to 2 decimal places
+                                 except ValueError:
+                                     price_text = raw_price # Fallback to raw if conversion fails
+                            else:
+                                price_text = raw_price # Fallback if regex fails
+                            break # Found price, exit selector loop
+                product['price'] = price_text
 
 
-                # URL
-                href = item.get('href')
-                if href:
-                    if href.startswith("//"):
-                        url = "https:" + href
-                    elif href.startswith("/"):
-                         url = "https://www.aliexpress.com" + href # Adjust base URL if needed
-                    else:
-                        url = href
+                # ratings
+                rating_container_selector = 'div.kc_j7'
+                rating_text = "N/A"
+                reviews_text = "N/A"
 
-                # Seller
-                seller_tag = item.select_one("span.io_ip a.io_ir")
-                if seller_tag:
-                    seller = seller_tag.get_text(strip=True)
+                container = item.select_one(rating_container_selector)
+                if container:
+                    # Rating: Try extracting from star widths
+                    star_container = container.select_one('div.kc_k3')
+                    if star_container:
+                        star_divs = star_container.select('div.kc_k5') # The inner divs with width style
+                        total_width = 0
+                        star_count = 0
+                        max_width_per_star = 10.0 # Assume 10px is a full star based on sample
+                        valid_calculation = True
+                        if star_divs:
+                            star_count = len(star_divs)
+                            for star_div in star_divs:
+                                style = star_div.get('style')
+                                if style:
+                                    match = re.search(r'width:\s*([\d.]+)px', style)
+                                    if match:
+                                        try:
+                                            width = float(match.group(1))
+                                            total_width += min(width, max_width_per_star) # Add width, capped at max
+                                        except ValueError:
+                                            valid_calculation = False; break
+                                    else: valid_calculation = False; break # Style found but no width?
+                                else: valid_calculation = False; break # No style attribute found
 
-                product = {
-                    "product_name": product_name,
-                    "price": price,
-                    "rating": rating,
-                    "reviews": reviews, # Note: Likely sales count
-                    "url": url,
-                    "seller": seller
-                }
+                            if valid_calculation and star_count > 0:
+                                # Calculate rating: (total filled width / total possible width) * 5 stars
+                                calculated_rating = (total_width / (star_count * max_width_per_star)) * 5.0
+                                rating_text = f"{calculated_rating:.1f}" # Format to one decimal place
+                            #else: rating_text = "N/A (Calc Error)" # Optional: Indicate calculation failed
+
+                    sales_span = container.select_one('span.kc_jv')
+                    if sales_span:
+                        text = sales_span.get_text(strip=True)
+                        # Extract number and descriptive part (like 'vendidos', 'sold', '+')
+                        sales_match = re.search(r'([\d.,\+]+)\s*(.*)', text, re.IGNORECASE)
+                        if sales_match:
+                            reviews_text = sales_match.group(1) + " " + sales_match.group(2).strip()
+                        else:
+                            reviews_text = text # Fallback to original text
+
+                        # Check if this span contains a numerical rating if stars failed
+                        if rating_text == "N/A" and re.match(r"^\d[,.]?\d?$", text.replace(',', '.')):
+                             rating_text = text.replace(',', '.')
+
+
+                product['rating'] = rating_text
+                product['reviews'] = reviews_text.strip() # Ensure no trailing spaces
+
+
+                # url
+                item_url = "N/A"
+                if item and item.name == 'a' and item.has_attr('href'):
+                    value = item['href'].strip()
+                    if value:
+                        try:
+                            if value.startswith("//"): value = base_url.split('://')[0] + ":" + value
+                            if value.startswith("://"): value = base_url.split('://')[0] + value
+                            if not base_url.endswith('/'): base_url += '/'
+                            item_url = urljoin(base_url, value)
+                        except ValueError: item_url = value
+                if item_url == "N/A":
+                     item_url = _extract_attribute(item, [
+                         'h3[class*="title"] a', 'h1[class*="title"] a',
+                         'a[data-pl*="product_detail"]', 'a[class*="product-item"]', 'a'
+                    ], 'href', base_url)
+                product['url'] = item_url
+
+                # --- Seller --- (Keep as before)
+                product['seller'] = _extract_text(item, [
+                    'span.in_io', 'a[href*="/store/"] span',
+                    'a[class*="store"]', 'span[class*="store"]'
+                ])
+
                 products.append(product)
 
             except Exception as e:
                 print(f"Error parsing AliExpress item: {e}")
-                # Optional: append placeholder or log more details
-                # import traceback; print(traceback.format_exc())
+                # print(traceback.format_exc())
 
         return products
 
@@ -226,6 +433,10 @@ class EcommerceRecommender:
         """Fetches HTML using the crawler and parses it using site-specific BS logic."""
         products = []
         engine_name = config["name"]
+        base_url = config.get("base_url", url)
+        item_selector = config.get("item_selector", "body")
+        wait_for_selector = config["config"].get("wait_for", item_selector) # Use specific wait_for
+
         try:
             print(f"\n--- Fetching HTML for {engine_name} ---")
             print(f"URL: {url}")
@@ -233,8 +444,8 @@ class EcommerceRecommender:
             result = await crawler.arun(
                 url=url,
                 js_code=config["config"].get("js", ""),
-                wait_for=config["config"].get("wait_for", "body"), # Updated wait_for
-                wait_timeout=60000, # Increased timeout (60 seconds)
+                wait_for=wait_for_selector, # Use the potentially more specific wait_for
+                wait_timeout=60000,
                 bypass_cache=self.crawl_config.cache_mode == CacheMode.BYPASS,
                 magic=self.crawl_config.magic,
                 simulate_user=self.crawl_config.simulate_user
@@ -242,22 +453,19 @@ class EcommerceRecommender:
 
             if result and result.html:
                 print(f"Successfully fetched HTML for {engine_name} (Length: {len(result.html)}).")
-                print(f"Parsing HTML using BeautifulSoup for {engine_name}...")
-
                 # --- Site-Specific Parsing ---
                 if engine_name == "Amazon":
-                    # save HTML for debugging Amazon selectors
-                    # with open("amazon_results.html", "w", encoding="utf-8") as f:
-                    #     f.write(result.html)
-                    products = self._parse_amazon_bs(result.html)
+                     # with open("amazon_results.html", "w", encoding="utf-8") as f:
+                     #     f.write(result.html)
+                    print(f"Parsing HTML using BeautifulSoup for {engine_name}...")
+                    products = self._parse_amazon_bs(result.html, base_url)
                 elif engine_name == "AliExpress":
-                     # Save HTML for debugging AliExpress selectors
-                     with open("search_results.html", "w", encoding="utf-8") as f:
-                        f.write(result.html)
-                     print("Saved AliExpress HTML to search_results.html")
-                     products = self._parse_aliexpress_bs(result.html)
+                     # with open("aliexpress_results.html", "w", encoding="utf-8") as f:
+                     #     f.write(result.html)
+                    print(f"Parsing HTML using BeautifulSoup for {engine_name}...")
+                    products = self._parse_aliexpress_bs(result.html, base_url)
                 else:
-                    print(f"Warning: No BeautifulSoup parser defined for engine: {engine_name}")
+                    print(f"Warning: No robust BeautifulSoup parser defined for engine: {engine_name}")
 
                 print(f"Parsed {len(products)} products for {engine_name}.")
 
@@ -270,7 +478,6 @@ class EcommerceRecommender:
             print(f"Error: Timeout occurred during crawl for {engine_name} at {url}")
         except Exception as e:
             print(f"Error during HTML fetching or parsing for {engine_name}: {str(e)}")
-            import traceback
             print(traceback.format_exc())
 
         print(f"--- Finished processing for {engine_name}, returning {len(products)} products ---")
@@ -281,24 +488,22 @@ class EcommerceRecommender:
         engine_name = engine_config["name"]
         try:
             async with AsyncWebCrawler(
-                verbose=True,
+                verbose=True, # Keep verbose for debugging
                 proxy=self.browser_config.proxy,
                 config=self.browser_config
             ) as crawler:
-                # Call the refactored parsing method
                 products = await self._parse_site_html(crawler, url, engine_config)
                 if products:
-                    # print(f"Extraction successful for {engine_name}, found {len(products)} products") # Already printed in _parse_site_html
                     return self._add_source(products, engine_name)
                 else:
                     print(f"No products extracted via parsing for {engine_name}")
                     return []
         except Exception as e:
             print(f"Failed to initialize or run crawler for {engine_name}: {str(e)}")
-            import traceback
             print(traceback.format_exc())
             return []
 
+    # --- crawl_for_products and _add_source remain the same ---
     async def crawl_for_products(self, query: str) -> List[Dict[str, Any]]:
         """Crawl all configured e-commerce sites for products matching the query."""
         search_urls = self.generate_search_urls(query)
@@ -315,14 +520,11 @@ class EcommerceRecommender:
         for result in results:
             if isinstance(result, Exception):
                 print(f"Error occurred in a crawl task: {result}")
-                # Optionally log the full traceback if needed
-                # import traceback
-                # print(traceback.format_exc())
+                # print(traceback.format_exc()) # Uncomment for full traceback
             elif isinstance(result, list):
                 all_products.extend(result)
             else:
                 print(f"Warning: Unexpected result type from gather: {type(result)}")
-
 
         print(f"\nTotal products found across all sites: {len(all_products)}")
         return all_products
@@ -335,6 +537,7 @@ class EcommerceRecommender:
                     product['source'] = source
         return products
 
+# --- main function remains the same ---
 async def main():
     recommender = EcommerceRecommender()
     user_query = input("What are you looking to buy? ")
@@ -343,15 +546,14 @@ async def main():
     products = await recommender.crawl_for_products(user_query)
 
     if products:
-        print(f"\n--- Top {min(len(products), 10)} Results ---")
+        print(f"\n--- Top {min(len(products), 20)} Results ---") # Show up to 20
         for i, product in enumerate(products[:20], 1):
             print(f"\n{i}. {product.get('product_name', 'N/A')}")
             print(f"   Source: {product.get('source', 'N/A')}")
             print(f"   Price: {product.get('price', 'N/A')}")
             print(f"   Rating: {product.get('rating', 'N/A')}")
-            print(f"   Reviews/Sold: {product.get('reviews', 'N/A')}") # Clarified label
+            print(f"   Reviews/Sold: {product.get('reviews', 'N/A')}")
             print(f"   Seller: {product.get('seller', 'N/A')}")
-             # Ensure URL is treated as string for printing if it's a Pydantic HttpUrl (less likely now)
             url = product.get('url')
             print(f"   URL: {str(url) if url else 'N/A'}")
     else:
@@ -359,5 +561,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-# --- END OF FILE crawler.py ---
