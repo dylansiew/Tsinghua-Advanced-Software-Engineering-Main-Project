@@ -1,7 +1,7 @@
 import json
 
 from app.genai.llm import llm_agent
-from backend.crawler.crawler import EcommerceRecommender
+from crawler.crawler import EcommerceRecommender
 
 tools = [{
     "type": "function",
