@@ -1,13 +1,16 @@
-from dotenv import load_dotenv
-import os
 import asyncio
 import json
-from urllib.parse import quote_plus, urljoin
-from typing import List, Dict, Any, Optional
-from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
-from bs4 import BeautifulSoup, Tag
+import os
 import re
 import traceback
+from typing import Any, Dict, List, Optional
+from urllib.parse import quote_plus, urljoin
+
+from bs4 import BeautifulSoup, Tag
+from crawl4ai import (AsyncWebCrawler, BrowserConfig, CacheMode,
+                      CrawlerRunConfig)
+from dotenv import load_dotenv
+
 
 # --- Helper function to extract text with fallbacks ---
 def _extract_text(item_soup: Tag, selectors: List[str], default: str = "N/A") -> str:
@@ -505,6 +508,7 @@ class EcommerceRecommender:
 
     # --- crawl_for_products and _add_source remain the same ---
     async def crawl_for_products(self, query: str) -> List[Dict[str, Any]]:
+        print(f"Crawling for products: {query}")
         """Crawl all configured e-commerce sites for products matching the query."""
         search_urls = self.generate_search_urls(query)
         all_products = []
@@ -544,20 +548,6 @@ async def main():
 
     print(f"\nSearching for '{user_query}' on {[e['name'] for e in recommender.search_engines]}...")
     products = await recommender.crawl_for_products(user_query)
-
-    if products:
-        print(f"\n--- Top {min(len(products), 20)} Results ---") # Show up to 20
-        for i, product in enumerate(products[:20], 1):
-            print(f"\n{i}. {product.get('product_name', 'N/A')}")
-            print(f"   Source: {product.get('source', 'N/A')}")
-            print(f"   Price: {product.get('price', 'N/A')}")
-            print(f"   Rating: {product.get('rating', 'N/A')}")
-            print(f"   Reviews/Sold: {product.get('reviews', 'N/A')}")
-            print(f"   Seller: {product.get('seller', 'N/A')}")
-            url = product.get('url')
-            print(f"   URL: {str(url) if url else 'N/A'}")
-    else:
-        print("\nNo products found matching your query. Try refining your search.")
-
+    print(products)
 if __name__ == "__main__":
     asyncio.run(main())

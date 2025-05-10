@@ -1,3 +1,5 @@
+import useQuerySent from "@/zustand/Avatar/QuerySent";
+import { useAvatarSpeak } from "@/zustand/Avatar/Speak";
 import { useMicVAD } from "@ricky0123/vad-react";
 
 function getAudioDurationFromFloat32Array(
@@ -14,8 +16,11 @@ const TranscriptionManager = ({
   onSendMessage: (message: Float32Array) => void;
   timeout: number;
 }) => {
+  const { querySent } = useQuerySent();
+  const { isPlaying } = useAvatarSpeak();
   const vad = useMicVAD({
     onSpeechEnd: (audio) => {
+      if (querySent || isPlaying) return;
       try {
         const duration = getAudioDurationFromFloat32Array(audio);
         if (duration > timeout) {

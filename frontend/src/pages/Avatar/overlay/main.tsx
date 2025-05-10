@@ -26,6 +26,7 @@ export const AvatarOverlay = () => {
   function onMessage(event: MessageEvent) {
     const data: ConversationMessage = JSON.parse(event.data);
     setQuerySent(false);
+    console.log(data.data);
     switch (data.type) {
       case ConversationMessageType.AUDIO_RESPONSE:
         try {

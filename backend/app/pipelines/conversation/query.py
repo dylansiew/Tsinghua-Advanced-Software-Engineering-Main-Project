@@ -7,7 +7,7 @@ import numpy as np
 from app.genai.llm import llm_agent
 from app.genai.stt import stt_agent
 from app.genai.tts import tts_agent
-from app.pipelines.conversation.audio_processing import identify_most_similar
+from app.pipelines.conversation.search import llm_search_product
 from app.utils.db import message_db
 from app.utils.ws import conversation_ws_manager
 from fastapi.responses import FileResponse
@@ -19,7 +19,6 @@ from models.conversation.message import Message
 from models.conversation.role import MessageRole
 from models.tts.viseme import AudioData
 from scipy.io.wavfile import write
-from speechbrain.pretrained import SpeakerRecognition
 
 
 async def save_messages(conversation_id: str, query: str, llm_response: str):
@@ -71,14 +70,6 @@ async def transcribe_audio(filename: str):
 querying = {}
 
 
-def verify_audio(filename: str):
-    verifier = SpeakerRecognition.from_hparams(
-        source="speechbrain/spkrec-ecapa-voxceleb"
-    )
-    score, prediction = verifier.verify_files("data/tts/output/reference.wav", filename)
-    score_value = score.item()
-    print("Similarity score:", score_value)
-    return score_value
 
 
 async def talk_to_llm(conversation_id: str, query: QueryMessage):
@@ -127,12 +118,7 @@ async def talk_to_llm(conversation_id: str, query: QueryMessage):
     with open(system_prompt_filepath, "r") as file:
         system_prompt = file.read()
 
-    llm_response = llm_agent.generate_response(
-        query=transcription,
-        message_history=formatted_messages,
-        response_model=str,
-        system_prompt=system_prompt,
-    )
+    llm_response = await llm_search_product(transcription, formatted_messages)
 
     # Fire-and-forget background task to save messages
     asyncio.create_task(save_messages(conversation_id, transcription, llm_response))

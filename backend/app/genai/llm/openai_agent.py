@@ -18,12 +18,14 @@ class OpenAIAgent(Base_LLM_Agent):
         self.model = "gpt-4.1"
 
     def _generate_tool_call_response(
-        self, message_history: list[dict], tools: list[dict]
+        self, message_history: list[dict], tools: list[dict], system_prompt: str
     ) -> str:
+        message_history.insert(0, {"role": "system", "content": system_prompt})
         response = self.client.responses.create(
             model=self.model,
             input=message_history,
             tools=tools,
+            tool_choice="required",
         )
         return response
 
