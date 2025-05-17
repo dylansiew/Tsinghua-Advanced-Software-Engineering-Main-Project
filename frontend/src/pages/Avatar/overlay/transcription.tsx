@@ -31,6 +31,8 @@ const TranscriptionManager = ({
       }
     },
     positiveSpeechThreshold: 0.8,
+    redemptionFrames: 20
+
   });
 
   return (
