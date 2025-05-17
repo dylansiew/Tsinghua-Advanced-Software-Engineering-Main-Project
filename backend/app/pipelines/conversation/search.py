@@ -1,7 +1,7 @@
 import json
 
 from app.genai.llm import llm_agent
-from backend.crawler.crawler import EcommerceRecommender
+from crawler.crawler import EcommerceRecommender
 
 with open("app/genai/llm/prompts/Tasha/system.txt", "r") as file:
     SYSTEM_PROMPT = file.read()
