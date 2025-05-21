@@ -121,7 +121,7 @@ export const TalkingAvatar = () => {
     }
   });
   return (
-    <group ref={group} position={[0, -1.5, 3.9]}>
+    <group ref={group} position={[0, -1.4, 4.2]}>
       <primitive object={scene} />
     </group>
   );
