@@ -1,7 +1,7 @@
 import { useAvatarSpeak, visemeMap } from "@/zustand/Avatar/Speak";
-import { useGLTF } from "@react-three/drei";
+import { useAnimations, useFBX, useGLTF } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 
 
 export const TalkingAvatar = () => {
@@ -9,17 +9,20 @@ export const TalkingAvatar = () => {
 
   const { viseme, getPlaying, audio } = useAvatarSpeak();
   const { nodes, scene } = useGLTF("/Tests/avatar.glb");
-  // const { animations: talkingAnimation } = useFBX(
-  //   `/animations/${animation}.fbx`
-  // );
+  const animation = "Happy Idle"
+  const { animations: talkingAnimation } = useFBX(
+    `/Tests/${animation}.fbx`
+  );
 
-  // talkingAnimation[0].name = animation;
+  talkingAnimation[0].name = animation;
 
-  // const { actions } = useAnimations([...talkingAnimation], group);
+  const { actions } = useAnimations([...talkingAnimation], group);
 
-  // useEffect(() => {
-  //   actions[animation].reset().play();
-  // }, [actions, animation]);
+  useEffect(() => {
+    if (actions && actions[animation]) {  
+      actions[animation].reset().play();
+    }
+  }, [actions, animation]);
 
   // const lerpTarget = (target, value, speed = 0.1) => {
   //   if (nodes.Wolf3D_Head.morphTargetDictionary[target] !== undefined) {

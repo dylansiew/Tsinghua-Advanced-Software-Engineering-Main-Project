@@ -13,9 +13,10 @@ import { TalkingAvatar } from "./avatar";
 import { AvatarInitializer } from "./initializer";
 import { Status } from "./status";
 import TranscriptionManager from "./transcription";
+import { Environment, Image } from "@react-three/drei";
 
 const MIN_SPEECH_DURATION = 1;
-
+const IMAGE_WIDTH = 12;
 export const AvatarOverlay = () => {
   const { setIsConnected, isConnected, websocket, setwebsocket } =
     useWebsocket();
@@ -53,10 +54,15 @@ export const AvatarOverlay = () => {
   return (
     <div className="flex flex-col items-center justify-center h-full w-full">
       <AvatarInitializer />
-      <Canvas style={{ height: "95vh", width: "90vw" }}>
-        <ambientLight intensity={2} />
-        <pointLight position={[10, 10, 10]} />
+      <Canvas style={{ height: "100vh", width: "100vw" }}>
+        {/* <ambientLight intensity={2} /> */}
+        <Environment preset="dawn"  environmentIntensity={0.5}/>
         {/* <OrbitControls /> */}
+        <Image
+          url="/Tests/background.png"
+          position={[0, 0, 0]}
+          scale={[IMAGE_WIDTH, IMAGE_WIDTH / (3 / 2)]} // Adjusted scale to achieve a 3:2 aspect ratio
+        />
         <TalkingAvatar />
       </Canvas>
       {sessionID && (
@@ -69,7 +75,7 @@ export const AvatarOverlay = () => {
           onMessage={onMessage}
         />
       )}
-      <Status />
+      {/* <Status /> */}
       <TranscriptionManager
         onSendMessage={onSendMessage}
         timeout={MIN_SPEECH_DURATION}
