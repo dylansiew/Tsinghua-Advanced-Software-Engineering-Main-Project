@@ -43,7 +43,7 @@ export const AvatarOverlay = () => {
   }
 
   function onSendMessage(message: Float32Array) {
-    if (message.length == 0 || !websocket || !sessionID || isPlaying) return;
+    if (message.length == 0 || !websocket || !sessionID || isPlaying || querySent) return;
     const data: ConversationMessage = {
       type: ConversationMessageType.QUERY,
       data: { query: message },
@@ -63,7 +63,7 @@ export const AvatarOverlay = () => {
           position={[0, 0, 0]}
           scale={[IMAGE_WIDTH, IMAGE_WIDTH / (3 / 2)]} // Adjusted scale to achieve a 3:2 aspect ratio
         />
-        <TalkingAvatar />
+        <TalkingAvatar querySent={querySent}/>
       </Canvas>
       {sessionID && (
         <WebsocketManager

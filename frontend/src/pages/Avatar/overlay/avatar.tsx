@@ -1,25 +1,24 @@
 import { useAvatarSpeak, visemeMap } from "@/zustand/Avatar/Speak";
 import { useAnimations, useFBX, useGLTF } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
-
-export const TalkingAvatar = () => {
+export const TalkingAvatar = ({ querySent }: { querySent: boolean }) => {
   const group = useRef(null);
 
   const { viseme, getPlaying, audio } = useAvatarSpeak();
   const { nodes, scene } = useGLTF("/Tests/avatar.glb");
-  const animation = "Happy Idle"
-  const { animations: talkingAnimation } = useFBX(
-    `/Tests/${animation}.fbx`
-  );
+  const [animation, setAnimation] = useState("Happy Idle");
+  const { animations: happyIdle } = useFBX("/Tests/Happy Idle.fbx");
+  const { animations: thinking } = useFBX("/Tests/Thinking.fbx");
 
-  talkingAnimation[0].name = animation;
+  happyIdle[0].name = "Happy Idle";
+  thinking[0].name = "Thinking";
 
-  const { actions } = useAnimations([...talkingAnimation], group);
+  const { actions } = useAnimations([...thinking, ...happyIdle], group);
 
   useEffect(() => {
-    if (actions && actions[animation]) {  
+    if (actions && actions[animation]) {
       actions[animation].reset().play();
     }
   }, [actions, animation]);
@@ -48,8 +47,18 @@ export const TalkingAvatar = () => {
   //     );
   //   }
   // };
-
-  const incrementMorph = (morphName: string, targetValue: number, duration: number) => {
+  useEffect(() => {
+    if (querySent) {
+      setAnimation("Thinking");
+    } else {
+      setAnimation("Happy Idle");
+    }
+  }, [querySent]);
+  const incrementMorph = (
+    morphName: string,
+    targetValue: number,
+    duration: number
+  ) => {
     const stepTime = 5;
     const steps = duration / stepTime;
     const increment = targetValue / steps;
@@ -126,4 +135,3 @@ export const TalkingAvatar = () => {
     </group>
   );
 };
-
